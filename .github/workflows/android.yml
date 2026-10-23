@@ -1,0 +1,64 @@
+name: Build Android app
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "android-src/**"
+      - ".github/workflows/android.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the Android project from android-src
+        run: |
+          S=android-src
+          A=android/app/src/main
+          mkdir -p $A/java/com/rishimishra/specworth $A/res/drawable $A/res/mipmap-anydpi
+          cp $S/settings.gradle android/settings.gradle
+          cp $S/root-build.gradle android/build.gradle
+          cp $S/app-build.gradle android/app/build.gradle
+          cp $S/AndroidManifest.xml $A/AndroidManifest.xml
+          cp $S/MainActivity.java $A/java/com/rishimishra/specworth/MainActivity.java
+          cp $S/ic_launcher_background.xml $A/res/drawable/
+          cp $S/ic_launcher_foreground.xml $A/res/drawable/
+          cp $S/ic_launcher.xml $A/res/mipmap-anydpi/
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK pieces
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0" || true
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build debug APK
+        working-directory: android
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Name the APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk SpecWorth.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SpecWorth-apk
+          path: SpecWorth.apk
+
+      - name: Publish to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: SpecWorth Android app
+          body: "Android app for SpecWorth (a WebView app that opens specworth.streamlit.app). Download SpecWorth.apk below."
+          files: SpecWorth.apk
