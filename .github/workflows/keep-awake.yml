@@ -1,0 +1,75 @@
+name: Keep app awake
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  visit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install a headless browser
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Visit the app, and wake it up if it is asleep
+        run: |
+          python - <<'PY'
+          import re
+          import sys
+          import time
+
+          from playwright.sync_api import TimeoutError as PlaywrightTimeout
+          from playwright.sync_api import sync_playwright
+
+          URL = "https://specworth.streamlit.app/"
+          MARK = "Know what your phone is worth"
+
+
+          def app_is_up(page):
+              for frame in page.frames:
+                  try:
+                      if frame.get_by_text(MARK).count() > 0:
+                          return True
+                  except Exception:
+                      pass
+              return False
+
+
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              page = browser.new_page()
+              page.goto(URL, wait_until="domcontentloaded", timeout=120000)
+              woke = False
+              try:
+                  page.get_by_role("button", name=re.compile("back up", re.I)).click(timeout=20000)
+                  woke = True
+                  print("The app was asleep: clicked the wake-up button")
+              except PlaywrightTimeout:
+                  print("No wake-up button: the app was already awake")
+              deadline = time.time() + (240 if woke else 90)
+              while time.time() < deadline:
+                  if app_is_up(page):
+                      print("The app is up")
+                      browser.close()
+                      sys.exit(0)
+                  time.sleep(5)
+              page.screenshot(path="failure.png")
+              browser.close()
+              sys.exit("The app did not load in time")
+          PY
+
+      - name: Keep a screenshot if it failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-screenshot
+          path: failure.png
+          if-no-files-found: ignore
